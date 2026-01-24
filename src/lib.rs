@@ -20,45 +20,50 @@ impl RedDict {
         Ok(RedDict { data: data })
     }
 
-    fn add_scalar(&mut self, value: f64) -> Self {
-        Arc::make_mut(&mut self.data)
+    fn add_scalar(&self, value: f64) -> Self {
+        let mut new = self.clone();
+        Arc::make_mut(&mut new.data)
             .iter_mut()
             .for_each(|(_, val)| *val += value);
-        self.clone()
+        new
     }
 
-    fn subtract_scalar(&mut self, value: f64) -> Self {
-        Arc::make_mut(&mut self.data)
+    fn subtract_scalar(&self, value: f64) -> Self {
+        let mut new = self.clone();
+        Arc::make_mut(&mut new.data)
             .iter_mut()
             .for_each(|(_, val)| *val -= value);
-        self.clone()
+        new
     }
 
-    fn add(&mut self, other: &Bound<Self>) -> PyResult<Self> {
+    fn add(&self, other: &Bound<Self>) -> PyResult<Self> {
         let other_data = other.extract::<Self>()?.data;
-        Arc::make_mut(&mut self.data)
+        let mut new = self.clone();
+        Arc::make_mut(&mut new.data)
             .iter_mut()
             .for_each(|(key, val)| *val += other_data.get(key).unwrap_or(&0.0));
 
-        Ok(self.clone())
+        Ok(new)
     }
 
-    fn subtract(&mut self, other: &Bound<Self>) -> PyResult<Self> {
+    fn subtract(&self, other: &Bound<Self>) -> PyResult<Self> {
         let other_data = other.extract::<Self>()?.data;
-        Arc::make_mut(&mut self.data)
+        let mut new = self.clone();
+        Arc::make_mut(&mut new.data)
             .iter_mut()
             .for_each(|(key, val)| *val -= other_data.get(key).unwrap_or(&0.0));
 
-        Ok(self.clone())
+        Ok(new)
     }
 
-    fn multiply(&mut self, other: Bound<Self>) -> PyResult<Self> {
+    fn multiply(&self, other: Bound<Self>) -> PyResult<Self> {
         let other_data = other.extract::<Self>()?.data;
-        Arc::make_mut(&mut self.data)
+        let mut new = self.clone();
+        Arc::make_mut(&mut new.data)
             .iter_mut()
             .for_each(|(key, val)| *val *= other_data.get(key).unwrap_or(&0.0));
 
-        Ok(self.clone())
+        Ok(new)
     }
 
     #[getter]

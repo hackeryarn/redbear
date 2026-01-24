@@ -10,13 +10,13 @@ Running tests with a few `blackbear` inspired functions proved the simple approa
 
 ``` sh
 Redbear 100000 X 5 Element-wise ops on collection of 10:
-  0.115 seconds
+  0.170 seconds
 Redbear 1000000 X 5 Element-wise ops on collection of 10:
-  1.150 seconds
+  1.742 seconds
 Redbear 10000 X 5 Element-wise ops on collection of 1000:
-  0.859 seconds
+  1.862 seconds
 Redbear 100000 X 5 Element-wise ops on collection of 1000:
-  8.649 seconds
+  18.331 seconds
 -----------
 Polars 100000 X 5 Element-wise ops on collection of 10:
   5.903 seconds
