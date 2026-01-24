@@ -1,4 +1,6 @@
-{ pkgs ? import <nixpkgs> { } }:
+{
+  pkgs ? import <nixpkgs> { },
+}:
 
 with pkgs;
 
@@ -10,8 +12,8 @@ mkShell {
     rustc
     rustfmt
     maturin
-    python311
-    python311Packages.python-lsp-server
+    python314
+    python314Packages.python-lsp-server
     libz
   ];
 
