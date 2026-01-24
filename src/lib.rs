@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use pyo3::{prelude::*, types::PyDict};
 
@@ -8,30 +9,34 @@ use pyo3::{prelude::*, types::PyDict};
 #[pyclass]
 #[derive(Clone)]
 struct RedDict {
-    data: HashMap<String, f64>,
+    data: Arc<HashMap<String, f64>>,
 }
 
 #[pymethods]
 impl RedDict {
     #[new]
     fn new(dict: &Bound<PyDict>) -> PyResult<Self> {
-        let data = dict.extract()?;
+        let data = Arc::new(dict.extract()?);
         Ok(RedDict { data: data })
     }
 
     fn add_scalar(&mut self, value: f64) -> Self {
-        self.data.iter_mut().for_each(|(_, val)| *val += value);
+        Arc::make_mut(&mut self.data)
+            .iter_mut()
+            .for_each(|(_, val)| *val += value);
         self.clone()
     }
 
     fn subtract_scalar(&mut self, value: f64) -> Self {
-        self.data.iter_mut().for_each(|(_, val)| *val -= value);
+        Arc::make_mut(&mut self.data)
+            .iter_mut()
+            .for_each(|(_, val)| *val -= value);
         self.clone()
     }
 
     fn add(&mut self, other: &Bound<Self>) -> PyResult<Self> {
         let other_data = other.extract::<Self>()?.data;
-        self.data
+        Arc::make_mut(&mut self.data)
             .iter_mut()
             .for_each(|(key, val)| *val += other_data.get(key).unwrap_or(&0.0));
 
@@ -40,7 +45,7 @@ impl RedDict {
 
     fn subtract(&mut self, other: &Bound<Self>) -> PyResult<Self> {
         let other_data = other.extract::<Self>()?.data;
-        self.data
+        Arc::make_mut(&mut self.data)
             .iter_mut()
             .for_each(|(key, val)| *val -= other_data.get(key).unwrap_or(&0.0));
 
@@ -49,7 +54,7 @@ impl RedDict {
 
     fn multiply(&mut self, other: Bound<Self>) -> PyResult<Self> {
         let other_data = other.extract::<Self>()?.data;
-        self.data
+        Arc::make_mut(&mut self.data)
             .iter_mut()
             .for_each(|(key, val)| *val *= other_data.get(key).unwrap_or(&0.0));
 
@@ -58,7 +63,7 @@ impl RedDict {
 
     #[getter]
     fn value(&self) -> HashMap<String, f64> {
-        self.data.to_owned()
+        Arc::unwrap_or_clone(self.data.clone())
     }
 }
 
