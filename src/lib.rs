@@ -6,31 +6,54 @@ use pyo3::{prelude::*, types::PyDict};
 #[pyclass]
 #[derive(Clone)]
 struct RedDict {
-    data: Arc<HashMap<String, f64>>,
+    /// Stable key order shared across clones.
+    keys: Arc<Vec<String>>,
+    /// Mapping from key -> index into `values`.
+    index: Arc<HashMap<String, usize>>,
+    /// Packed numeric values, aligned with `keys`.
+    values: Arc<Vec<f64>>,
 }
 
 #[pymethods]
 impl RedDict {
     #[new]
     fn new(dict: &Bound<PyDict>) -> PyResult<Self> {
-        let data = Arc::new(dict.extract()?);
-        Ok(RedDict { data: data })
+        // First extract into a temporary HashMap via PyO3, then
+        // build our split key/index/value representation.
+        let extracted: HashMap<String, f64> = dict.extract()?;
+
+        let mut keys = Vec::with_capacity(extracted.len());
+        let mut values = Vec::with_capacity(extracted.len());
+        let mut index = HashMap::with_capacity(extracted.len());
+
+        for (k, v) in extracted {
+            let pos = keys.len();
+            keys.push(k.clone());
+            values.push(v);
+            index.insert(k, pos);
+        }
+
+        Ok(Self {
+            keys: Arc::new(keys),
+            index: Arc::new(index),
+            values: Arc::new(values),
+        })
     }
 
     /// Adds a scalar value (single value) to every value in the dictionary.
     fn add_scalar(&self, value: f64) -> Self {
         let mut new = self.clone();
-        Arc::make_mut(&mut new.data)
+        Arc::make_mut(&mut new.values)
             .iter_mut()
-            .for_each(|(_, val)| *val += value);
+            .for_each(|val| *val += value);
         new
     }
 
     fn subtract_scalar(&self, value: f64) -> Self {
         let mut new = self.clone();
-        Arc::make_mut(&mut new.data)
+        Arc::make_mut(&mut new.values)
             .iter_mut()
-            .for_each(|(_, val)| *val -= value);
+            .for_each(|val| *val -= value);
         new
     }
 
@@ -39,39 +62,58 @@ impl RedDict {
     /// be used as the argument for +.
     #[pyo3(signature = (other, fill=0.0))]
     fn add(&self, other: &Bound<Self>, fill: f64) -> PyResult<Self> {
-        let other_data = &other.borrow().data;
-        let mut new = self.clone();
-        Arc::make_mut(&mut new.data)
-            .iter_mut()
-            .for_each(|(key, val)| *val += other_data.get(key).unwrap_or(&fill));
-
-        Ok(new)
+        let other_ref = other.borrow();
+        Ok(merge(self, &other_ref, fill, |a, b| a + b))
     }
 
     fn subtract(&self, other: &Bound<Self>) -> PyResult<Self> {
-        let other_data = &other.borrow().data;
-        let mut new = self.clone();
-        Arc::make_mut(&mut new.data)
-            .iter_mut()
-            .for_each(|(key, val)| *val -= other_data.get(key).unwrap_or(&0.0));
-
-        Ok(new)
+        let other_ref = other.borrow();
+        Ok(merge(self, &other_ref, 0.0, |a, b| a - b))
     }
 
     fn multiply(&self, other: &Bound<Self>) -> PyResult<Self> {
-        let other_data = &other.borrow().data;
-        let mut new = self.clone();
-        Arc::make_mut(&mut new.data)
-            .iter_mut()
-            .for_each(|(key, val)| *val *= other_data.get(key).unwrap_or(&0.0));
-
-        Ok(new)
+        let other_ref = other.borrow();
+        Ok(merge(self, &other_ref, 0.0, |a, b| a * b))
     }
 
     #[getter]
     fn value(&self) -> HashMap<String, f64> {
-        Arc::unwrap_or_clone(self.data.clone())
+        let mut map = HashMap::with_capacity(self.keys.len());
+        for (k, v) in self.keys.iter().zip(self.values.iter()) {
+            map.insert(k.clone(), *v);
+        }
+        map
     }
+}
+
+/// Shared implementation for binary element-wise operations.
+///
+/// `fill` is the value used when `other` is missing a key present in `self`.
+fn merge<F>(this: &RedDict, other: &RedDict, fill: f64, f: F) -> RedDict
+where
+    F: Fn(f64, f64) -> f64,
+{
+    let mut new = this.clone();
+    let new_vals = Arc::make_mut(&mut new.values);
+
+    if Arc::ptr_eq(&this.keys, &other.keys) {
+        // Fast path: identical key layout, can do a pure vector op.
+        for (nv, ov) in new_vals.iter_mut().zip(other.values.iter()) {
+            *nv = f(*nv, *ov);
+        }
+    } else {
+        // General case: align on self's keys using other's index map.
+        for (i, key) in this.keys.iter().enumerate() {
+            let rhs = other
+                .index
+                .get(key)
+                .map(|&j| other.values[j])
+                .unwrap_or(fill);
+            new_vals[i] = f(new_vals[i], rhs);
+        }
+    }
+
+    new
 }
 
 /// A Python module implemented in Rust.
