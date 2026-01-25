@@ -12,4 +12,6 @@ classifiers = [
 ]
 dynamic = ["version"]
 [tool.maturin]
+profile = "release"
+editable-profile = "dev"
 features = ["pyo3/extension-module"]
