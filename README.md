@@ -1,22 +1,33 @@
 # Redbear
 
-This was a quick test of an idea inspired by https://github.com/cgdeboer/blackbear.
+This is a test of an idea inspired by https://github.com/cgdeboer/blackbear.
 
 `blackbear` shows that running many operations on small data sets can perform better in raw python than in the popular data science libraries. This inspired the theory that using the simplest conversion of types from Python to Rust would yield similar results.
 
-Running tests with a few `blackbear` inspired functions proved the simple approach ends up not reaching any meaningful optimization. When running many operations on a small set, the performance was better than `polars` and `pandas`, but far behind `blackbear`. And when running on large sets the performance became very bad over all.
+After some heavy optimizations, we can heavily improve performance at the cost of some code complexity. None of the complexity gets exposed to the end user, so it makes a good tradeoff.
 
 ## Benchmarks
 
 ``` sh
+# Merging dict derived from the same original calculation (best case scenario)
 Redbear 100000 X 5 Element-wise ops on collection of 10:
-  0.064 seconds
+  0.058 seconds
 Redbear 1000000 X 5 Element-wise ops on collection of 10:
-  0.651 seconds
+  0.600 seconds
 Redbear 10000 X 5 Element-wise ops on collection of 1000:
   0.017 seconds
 Redbear 100000 X 5 Element-wise ops on collection of 1000:
-  0.167 seconds
+  0.149 seconds
+-----------
+# Merging dicts with different key order (worst case scenario)
+Redbear 100000 X 5 Element-wise ops on collection of 10:
+  0.111 seconds
+Redbear 1000000 X 5 Element-wise ops on collection of 10:
+  1.078 seconds
+Redbear 10000 X 5 Element-wise ops on collection of 1000:
+  0.578 seconds
+Redbear 100000 X 5 Element-wise ops on collection of 1000:
+  5.884 seconds
 -----------
 Polars 100000 X 5 Element-wise ops on collection of 10:
   5.903 seconds
