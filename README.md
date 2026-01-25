@@ -9,7 +9,7 @@ After some heavy optimizations, we can heavily improve performance at the cost o
 ## Benchmarks
 
 ``` sh
-# Merging dict derived from the same original calculation (best case scenario)
+# Merging dict derived from the same dict (best case scenario of keys staying identical)
 Redbear 100000 X 5 Element-wise ops on collection of 10:
   0.058 seconds
 Redbear 1000000 X 5 Element-wise ops on collection of 10:
