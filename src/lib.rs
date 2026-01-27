@@ -26,8 +26,7 @@ impl RedDict {
         let mut values = Vec::with_capacity(extracted.len());
         let mut index = HashMap::with_capacity(extracted.len());
 
-        for (k, v) in extracted {
-            let pos = keys.len();
+        for (pos, (k, v)) in extracted.into_iter().enumerate() {
             keys.push(k.clone());
             values.push(v);
             index.insert(k, pos);
@@ -49,6 +48,7 @@ impl RedDict {
         new
     }
 
+    /// Subtracts a scalar value (single value) to every value in the dictionary.
     fn subtract_scalar(&self, value: f64) -> Self {
         let mut new = self.clone();
         Arc::make_mut(&mut new.values)
@@ -66,18 +66,26 @@ impl RedDict {
         Ok(merge(self, &other_ref, fill, |a, b| a + b))
     }
 
-    fn subtract(&self, other: &Bound<Self>) -> PyResult<Self> {
+    /// Subtracts values (d1 - d2), aligned on d1s keys. Only keys from d1 are
+    /// considered, if key from d1 is absent from d2, a fill value can optionally
+    /// be used as the argument for -.
+    #[pyo3(signature = (other, fill=0.0))]
+    fn subtract(&self, other: &Bound<Self>, fill: f64) -> PyResult<Self> {
         let other_ref = other.borrow();
-        Ok(merge(self, &other_ref, 0.0, |a, b| a - b))
+        Ok(merge(self, &other_ref, fill, |a, b| a - b))
     }
 
-    fn multiply(&self, other: &Bound<Self>) -> PyResult<Self> {
+    /// Multiplies values (d1 * d2), aligned on d1s keys. Only keys from d1 are
+    /// considered, if key from d1 is absent from d2, a fill value can optionally
+    /// be used as the argument for *.
+    #[pyo3(signature = (other, fill=1.0))]
+    fn multiply(&self, other: &Bound<Self>, fill: f64) -> PyResult<Self> {
         let other_ref = other.borrow();
-        Ok(merge(self, &other_ref, 0.0, |a, b| a * b))
+        Ok(merge(self, &other_ref, fill, |a, b| a * b))
     }
 
     #[getter]
-    fn value(&self) -> HashMap<String, f64> {
+    fn to_dict(&self) -> HashMap<String, f64> {
         let mut map = HashMap::with_capacity(self.keys.len());
         for (k, v) in self.keys.iter().zip(self.values.iter()) {
             map.insert(k.clone(), *v);
@@ -91,7 +99,7 @@ impl RedDict {
 /// `fill` is the value used when `other` is missing a key present in `self`.
 fn merge<F>(this: &RedDict, other: &RedDict, fill: f64, f: F) -> RedDict
 where
-    F: Fn(f64, f64) -> f64,
+    F: Fn(&f64, &f64) -> f64,
 {
     let mut new = this.clone();
     let new_vals = Arc::make_mut(&mut new.values);
@@ -99,7 +107,7 @@ where
     if Arc::ptr_eq(&this.keys, &other.keys) {
         // Fast path: identical key layout, can do a pure vector op.
         for (nv, ov) in new_vals.iter_mut().zip(other.values.iter()) {
-            *nv = f(*nv, *ov);
+            *nv = f(nv, ov);
         }
     } else {
         // General case: align on self's keys using other's index map.
@@ -109,7 +117,7 @@ where
                 .get(key)
                 .map(|&j| other.values[j])
                 .unwrap_or(fill);
-            new_vals[i] = f(new_vals[i], rhs);
+            new_vals[i] = f(&new_vals[i], &rhs);
         }
     }
 
@@ -143,12 +151,12 @@ mod tests {
             let d = make_dict(py, &[("a", 1.0), ("b", -2.0)]);
 
             let added = d.add_scalar(3.0);
-            let added_vals = added.value();
+            let added_vals = added.to_dict();
             assert_eq!(added_vals.get("a"), Some(&4.0));
             assert_eq!(added_vals.get("b"), Some(&1.0));
 
             let subtracted = d.subtract_scalar(1.0);
-            let sub_vals = subtracted.value();
+            let sub_vals = subtracted.to_dict();
             assert_eq!(sub_vals.get("a"), Some(&0.0));
             assert_eq!(sub_vals.get("b"), Some(&-3.0));
         });
@@ -167,7 +175,7 @@ mod tests {
             let right_bound = py_right.bind(py);
 
             let added = left.add(&right_bound, 5.0).unwrap();
-            let add_vals = added.value();
+            let add_vals = added.to_dict();
             // "a" missing from right -> uses fill value
             assert_eq!(add_vals.get("a"), Some(&(1.0 + 5.0)));
             // "b" present in both -> uses right's value
@@ -175,8 +183,8 @@ mod tests {
             // "c" only in right -> never appears
             assert!(!add_vals.contains_key("c"));
 
-            let subtracted = left.subtract(&right_bound).unwrap();
-            let sub_vals = subtracted.value();
+            let subtracted = left.subtract(&right_bound, 0.0).unwrap();
+            let sub_vals = subtracted.to_dict();
             // "a" missing from right -> subtracts 0.0
             assert_eq!(sub_vals.get("a"), Some(&(1.0 - 0.0)));
             // "b" present in both -> subtracts right's value
@@ -195,8 +203,8 @@ mod tests {
             let py_right = Py::new(py, right.clone()).unwrap();
             let right_bound = py_right.bind(py);
 
-            let result = left.multiply(right_bound).unwrap();
-            let vals = result.value();
+            let result = left.multiply(right_bound, 1.0).unwrap();
+            let vals = result.to_dict();
 
             // "a" missing from right -> multiplied by 0.0
             assert_eq!(vals.get("a"), Some(&(2.0 * 0.0)));
