@@ -1,68 +1,89 @@
 # Redbear
 
-This is a test of an idea inspired by https://github.com/cgdeboer/blackbear.
+A high-performance Python extension for fast element-wise dictionary operations. Redbear provides a minimal, purpose-built `RedDict` class that delivers significant performance improvements over traditional data science libraries for specific use cases involving numeric dictionaries.
 
-`blackbear` shows that running many operations on small data sets can perform better in raw python than in the popular data science libraries. This inspired the theory that using the simplest conversion of types from Python to Rust would yield similar results.
+## Purpose
 
-After some heavy optimizations, we can heavily improve performance at the cost of some code complexity. None of the complexity gets exposed to the end user, so it makes a good tradeoff.
+Redbear is inspired by [blackbear](https://github.com/cgdeboer/blackbear) and builds on the concepts introduced there. By moving the implementation to Rust while keeping things as simple as possible, Redbear achieves far better performance across the board.
+
+The library is designed for scenarios where:
+- You work with numeric dictionaries (string keys, float values)
+- You need fast element-wise operations (add, subtract, multiply)
+- Performance matters more than generality
+
+After heavy optimizations using PyO3 and Arc-based internal sharing, Redbear achieves excellent performance while hiding all the complexity from the library users.
+
+## Installation
+
+```bash
+maturin develop
+```
+
+## Usage
+
+```python
+import redbear as rb
+
+# Create a RedDict from a regular Python dict
+data = {"a": 1.0, "b": 2.0, "c": 3.0}
+rd = rb.RedDict(data)
+
+# Scalar operations (creates a new RedDict)
+rd_plus_5 = rd.add_scalar(5.0)  # {"a": 6.0, "b": 7.0, "c": 8.0}
+rd_minus_2 = rd.subtract_scalar(2.0)  # {"a": -1.0, "b": 0.0, "c": 1.0}
+
+# Element-wise operations between two RedDicts
+other = rb.RedDict({"a": 10.0, "b": 20.0, "c": 30.0})
+result = rd.add(other)  # {"a": 11.0, "b": 22.0, "c": 33.0}
+result = rd.subtract(other)  # {"a": -9.0, "b": -18.0, "c": -27.0}
+result = rd.multiply(other)  # {"a": 10.0, "b": 40.0, "c": 90.0}
+
+# Get the underlying dict back
+plain_dict = rd.value  # {"a": 1.0, "b": 2.0, "c": 3.0}
+```
 
 ## Benchmarks
 
-``` sh
-# Merging dict derived from the same dict (best case scenario of keys staying identical)
-Redbear 100000 X 5 Element-wise ops on collection of 10:
-  0.058 seconds
-Redbear 1000000 X 5 Element-wise ops on collection of 10:
-  0.600 seconds
-Redbear 10000 X 5 Element-wise ops on collection of 1000:
-  0.017 seconds
-Redbear 100000 X 5 Element-wise ops on collection of 1000:
-  0.149 seconds
------------
-# Merging dicts with different key order (worst case scenario)
-Redbear 100000 X 5 Element-wise ops on collection of 10:
-  0.111 seconds
-Redbear 1000000 X 5 Element-wise ops on collection of 10:
-  1.078 seconds
-Redbear 10000 X 5 Element-wise ops on collection of 1000:
-  0.578 seconds
-Redbear 100000 X 5 Element-wise ops on collection of 1000:
-  5.884 seconds
------------
-Polars 100000 X 5 Element-wise ops on collection of 10:
-  5.903 seconds
-Polars 1000000 X 5 Element-wise ops on collection of 10:
-  56.002 seconds
-Polars 10000 X 5 Element-wise ops on collection of 1000:
-  0.541 seconds
-Polars 100000 X 5 Element-wise ops on collection of 1000:
-  5.383 seconds
------------
-Pandas 100000 X 5 Element-wise ops on collection of 10:
-  18.414 seconds
-Pandas 1000000 X 5 Element-wise ops on collection of 10:
-  182.312 seconds
-Pandas 10000 X 5 Element-wise ops on collection of 1000:
-  2.021 seconds
-Pandas 100000 X 5 Element-wise ops on collection of 1000:
-  23.436 seconds
------------
-Numpy 100000 X 5 Element-wise ops on collection of 10:
-  0.205 seconds
-Numpy 1000000 X 5 Element-wise ops on collection of 10:
-  1.997 seconds
-Numpy 10000 X 5 Element-wise ops on collection of 1000:
-  0.037 seconds
-Numpy 100000 X 5 Element-wise ops on collection of 1000:
-  0.348 seconds
------------
-Blackbear 100000 X 5 Element-wise ops on collection of 10:
-  0.313 seconds
-Blackbear 1000000 X 5 Element-wise ops on collection of 10:
-  3.072 seconds
-Blackbear 10000 X 5 Element-wise ops on collection of 1000:
-  2.637 seconds
-Blackbear 100000 X 5 Element-wise ops on collection of 1000:
-  27.970 seconds
+Run benchmarks with:
+```bash
+pip install -e ".[dev]"
+python -m benchmarks.redbear_way
+python -m benchmarks.numpy_way
+python -m benchmarks.blackbear_way
+python -m benchmarks.polars_way
+python -m benchmarks.pandas_way
 ```
 
+### Best Case (keys identical)
+
+| Library | Operations | Collection Size | Time (seconds) |
+|---------|------------|-----------------|----------------|
+| Redbear | 100000 x 5 | 10 | 0.056 |
+| Redbear | 1000000 x 5 | 10 | 0.583 |
+| Redbear | 10000 x 5 | 1000 | 0.015 |
+| Redbear | 100000 x 5 | 1000 | 0.145 |
+| Numpy | 100000 x 5 | 10 | 0.285 |
+| Numpy | 1000000 x 5 | 10 | 2.436 |
+| Numpy | 10000 x 5 | 1000 | 0.039 |
+| Numpy | 100000 x 5 | 1000 | 0.371 |
+| Blackbear | 100000 x 5 | 10 | 0.371 |
+| Blackbear | 1000000 x 5 | 10 | 3.755 |
+| Blackbear | 10000 x 5 | 1000 | 3.643 |
+| Blackbear | 100000 x 5 | 1000 | 36.307 |
+| Polars | 100000 x 5 | 10 | 1.072 |
+| Polars | 1000000 x 5 | 10 | 11.147 |
+| Polars | 10000 x 5 | 1000 | 0.132 |
+| Polars | 100000 x 5 | 1000 | 1.219 |
+| Pandas | 100000 x 5 | 10 | 13.466 |
+| Pandas | 1000000 x 5 | 10 | 130.837 |
+| Pandas | 10000 x 5 | 1000 | 1.339 |
+| Pandas | 100000 x 5 | 1000 | 13.432 |
+
+### Worst Case (different key order)
+
+| Library | Operations | Collection Size | Time (seconds) |
+|---------|------------|-----------------|----------------|
+| Redbear | 100000 x 5 | 10 | 0.561 |
+| Redbear | 1000000 x 5 | 10 | 5.432 |
+| Redbear | 10000 x 5 | 1000 | 0.283 |
+| Redbear | 100000 x 5 | 1000 | 2.842 |

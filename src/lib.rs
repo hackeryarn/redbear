@@ -274,7 +274,9 @@ where
     let mut new = this.clone();
     let new_vals = Arc::make_mut(&mut new.values);
 
-    if this.index.len() == other.index.len() && this.index == other.index {
+    if Arc::ptr_eq(&this.index, &other.index)
+        || (this.index.len() == other.index.len() && this.index == other.index)
+    {
         for (nv, ov) in new_vals.iter_mut().zip(other.values.iter()) {
             *nv = f(nv, ov);
         }
