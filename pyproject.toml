@@ -4,12 +4,19 @@ build-backend = "maturin"
 
 [project]
 name = "redbear"
+authors = [
+    { name="hackeryarn", email="hackeryarn@smallercircles.net" },
+]
+description = "A high-performance Python extension for fast element-wise dictionary operations."
+readme = "README.md"
 requires-python = ">=3.11"
 classifiers = [
     "Programming Language :: Rust",
     "Programming Language :: Python :: Implementation :: CPython",
     "Programming Language :: Python :: Implementation :: PyPy",
 ]
+license = "GPL-3.0-or-later"
+license-files = ["LICEN[CS]E*"]
 dynamic = ["version"]
 
 [project.optional-dependencies]
