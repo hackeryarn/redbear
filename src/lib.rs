@@ -36,7 +36,7 @@ impl RedDict {
     /// {'x': 1.0, 'y': 2.0}
     /// ```
     #[new]
-    fn new(dict: HashMap<String, f64>) -> PyResult<Self> {
+    fn new(dict: HashMap<String, f64>) -> Self {
         let mut values = Vec::with_capacity(dict.len());
         let mut index = HashMap::with_capacity(dict.len());
 
@@ -45,10 +45,10 @@ impl RedDict {
             index.insert(k, pos);
         }
 
-        Ok(Self {
+        Self {
             index: Arc::new(index),
             values: Arc::new(values),
-        })
+        }
     }
 
     /// Allows element wise access to the dictionary items. Note that this access
@@ -63,9 +63,9 @@ impl RedDict {
     /// 1.0
     /// ```
     fn __getitem__(&self, key: &str) -> Option<f64> {
-        let i = self.index.get(key)?.to_owned();
-
-        self.values.get(i).map(|v| v.to_owned())
+        self.index
+            .get(key)
+            .and_then(|&i| self.values.get(i).copied())
     }
 
     /// Adds a scalar value (single value) to every value in the dictionary.
@@ -77,13 +77,8 @@ impl RedDict {
     /// >>> d.add_scalar(10.0).to_dict
     /// {'a': 11.0, 'b': 12.0}
     /// ```
-    #[must_use]
     fn add_scalar(&self, value: f64) -> Self {
-        let mut new = self.clone();
-        Arc::make_mut(&mut new.values)
-            .iter_mut()
-            .for_each(|val| *val += value);
-        new
+        self.perform_scalar(value, |a, b| a + b)
     }
 
     /// Adds values (d1 + d2), aligned on d1s keys. Only keys from d1 are
@@ -101,9 +96,8 @@ impl RedDict {
     /// {'a': 6.0, 'b': 12.0}
     /// ```
     #[pyo3(signature = (other, fill=0.0))]
-    fn add(&self, other: &Bound<Self>, fill: f64) -> PyResult<Self> {
-        let other_ref = other.borrow();
-        Ok(merge(self, &other_ref, fill, |a, b| a + b))
+    fn add(&self, other: Self, fill: f64) -> Self {
+        self.merge(&other, fill, |a, b| a + b)
     }
 
     /// Subtracts a scalar value (single value) to every value in the dictionary.
@@ -115,13 +109,8 @@ impl RedDict {
     /// >>> d.subtract_scalar(3.0).to_dict
     /// {'a': 2.0, 'b': 7.0}
     /// ```
-    #[must_use]
     fn subtract_scalar(&self, value: f64) -> Self {
-        let mut new = self.clone();
-        Arc::make_mut(&mut new.values)
-            .iter_mut()
-            .for_each(|val| *val -= value);
-        new
+        self.perform_scalar(value, |a, b| a - b)
     }
 
     /// Subtracts values (d1 - d2), aligned on d1s keys. Only keys from d1 are
@@ -137,9 +126,8 @@ impl RedDict {
     /// {'a': 10.0, 'b': 3.0}
     /// ```
     #[pyo3(signature = (other, fill=0.0))]
-    fn subtract(&self, other: &Bound<Self>, fill: f64) -> PyResult<Self> {
-        let other_ref = other.borrow();
-        Ok(merge(self, &other_ref, fill, |a, b| a - b))
+    fn subtract(&self, other: Self, fill: f64) -> Self {
+        self.merge(&other, fill, |a, b| a - b)
     }
 
     /// Multiplies a scalar value (single value) to every value in the dictionary.
@@ -151,13 +139,8 @@ impl RedDict {
     /// >>> d.multiply_scalar(3.0).to_dict
     /// {'a': 6.0, 'b': 15.0}
     /// ```
-    #[must_use]
     fn multiply_scalar(&self, value: f64) -> Self {
-        let mut new = self.clone();
-        Arc::make_mut(&mut new.values)
-            .iter_mut()
-            .for_each(|val| *val *= value);
-        new
+        self.perform_scalar(value, |a, b| a * b)
     }
 
     /// Multiplies values (d1 * d2), aligned on d1s keys. Only keys from d1 are
@@ -173,9 +156,8 @@ impl RedDict {
     /// {'a': 2.0, 'b': 30.0}
     /// ```
     #[pyo3(signature = (other, fill=1.0))]
-    fn multiply(&self, other: &Bound<Self>, fill: f64) -> PyResult<Self> {
-        let other_ref = other.borrow();
-        Ok(merge(self, &other_ref, fill, |a, b| a * b))
+    fn multiply(&self, other: Self, fill: f64) -> Self {
+        self.merge(&other, fill, |a, b| a * b)
     }
 
     /// Divides a scalar value (single value) to every value in the dictionary.
@@ -187,13 +169,8 @@ impl RedDict {
     /// >>> d.divide_scalar(2.0).to_dict
     /// {'a': 5.0, 'b': 3.0}
     /// ```
-    #[must_use]
     fn divide_scalar(&self, value: f64) -> Self {
-        let mut new = self.clone();
-        Arc::make_mut(&mut new.values)
-            .iter_mut()
-            .for_each(|val| *val /= value);
-        new
+        self.perform_scalar(value, |a, b| a / b)
     }
 
     /// Divides values (d1 / d2), aligned on d1s keys. Only keys from d1 are
@@ -209,9 +186,8 @@ impl RedDict {
     /// {'a': 10.0, 'b': 3.0}
     /// ```
     #[pyo3(signature = (other, fill=1.0))]
-    fn divide(&self, other: &Bound<Self>, fill: f64) -> PyResult<Self> {
-        let other_ref = other.borrow();
-        Ok(merge(self, &other_ref, fill, |a, b| a / b))
+    fn divide(&self, other: Self, fill: f64) -> Self {
+        self.merge(&other, fill, |a, b| a / b)
     }
 
     /// Sum of values.
@@ -249,12 +225,9 @@ impl RedDict {
     /// >>> d.reset(99.0).to_dict
     /// {'a': 99.0, 'b': 99.0}
     /// ```
-    #[must_use]
     fn reset(&self, value: f64) -> Self {
         let mut new = self.clone();
-        Arc::make_mut(&mut new.values)
-            .iter_mut()
-            .for_each(|val| *val = value);
+        Arc::make_mut(&mut new.values).fill(value);
         new
     }
 
@@ -277,52 +250,61 @@ impl RedDict {
     }
 }
 
-/// Shared implementation for binary element-wise operations.
-///
-/// `fill` is the value used when `other` is missing a key present in `self`.
-fn merge<F>(this: &RedDict, other: &RedDict, fill: f64, f: F) -> RedDict
-where
-    F: Fn(&f64, &f64) -> f64,
-{
-    let mut new = this.clone();
-    let new_vals = Arc::make_mut(&mut new.values);
-
-    if Arc::ptr_eq(&this.index, &other.index)
-        || (this.index.len() == other.index.len() && this.index == other.index)
+impl RedDict {
+    /// Shared implementation for binary element-wise operations.
+    ///
+    /// `fill` is the value used when `other` is missing a key present in `self`.
+    fn merge<F>(&self, other: &Self, fill: f64, f: F) -> Self
+    where
+        F: Fn(f64, f64) -> f64,
     {
-        for (nv, ov) in new_vals.iter_mut().zip(other.values.iter()) {
-            *nv = f(nv, ov);
+        let mut new = self.clone();
+        let new_vals = Arc::make_mut(&mut new.values);
+
+        if new.index == other.index {
+            for (lhs, rhs) in new_vals.iter_mut().zip(other.values.iter()) {
+                *lhs = f(*lhs, *rhs);
+            }
+        } else {
+            for (key, &i) in new.index.iter() {
+                let rhs = other
+                    .index
+                    .get(key)
+                    .map(|&j| other.values[j])
+                    .unwrap_or(fill);
+                new_vals[i] = f(new_vals[i], rhs);
+            }
         }
-    } else {
-        for (key, &i) in this.index.iter() {
-            let rhs = other
-                .index
-                .get(key)
-                .map(|&j| other.values[j])
-                .unwrap_or(fill);
-            new_vals[i] = f(&new_vals[i], &rhs);
-        }
+        new
     }
 
-    new
+    fn perform_scalar<F>(&self, value: f64, f: F) -> Self
+    where
+        F: Fn(f64, f64) -> f64,
+    {
+        let mut new = self.clone();
+        Arc::make_mut(&mut new.values)
+            .iter_mut()
+            .for_each(|val| *val = f(*val, value));
+        new
+    }
 }
 
 /// A Python module implemented in Rust.
 #[pymodule]
-fn redbear(m: &Bound<PyModule>) -> PyResult<()> {
-    m.add_class::<RedDict>()?;
-    Ok(())
+mod redbear {
+    #[pymodule_export]
+    use super::RedDict;
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use pyo3::Py;
 
     fn make_dict(entries: &[(&str, f64)]) -> RedDict {
         let hashmap: HashMap<String, f64> =
             entries.iter().map(|(k, v)| (k.to_string(), *v)).collect();
-        RedDict::new(hashmap).unwrap()
+        RedDict::new(hashmap)
     }
 
     #[test]
@@ -402,148 +384,100 @@ mod tests {
 
     #[test]
     fn test_add_uses_fill_for_missing_keys() {
-        Python::initialize();
-        Python::attach(|py| {
-            let left = make_dict(&[("a", 1.0), ("b", 2.0)]);
-            let right = make_dict(&[("b", 10.0), ("c", 100.0)]);
-            let py_right = Py::new(py, right.clone()).unwrap();
-            let result = left.add(py_right.bind(py), 5.0).unwrap();
-            assert_eq!(result.to_dict().get("a"), Some(&6.0)); // fill used
-            assert_eq!(result.to_dict().get("b"), Some(&12.0)); // right value used
-            assert!(!result.to_dict().contains_key("c"));
-        });
+        let left = make_dict(&[("a", 1.0), ("b", 2.0)]);
+        let right = make_dict(&[("b", 10.0), ("c", 100.0)]);
+        let result = left.add(right, 5.0);
+        assert_eq!(result.to_dict().get("a"), Some(&6.0));
+        assert_eq!(result.to_dict().get("b"), Some(&12.0));
+        assert!(!result.to_dict().contains_key("c"));
     }
 
     #[test]
     fn test_subtract_uses_fill_for_missing_keys() {
-        Python::initialize();
-        Python::attach(|py| {
-            let left = make_dict(&[("a", 10.0), ("b", 5.0)]);
-            let right = make_dict(&[("b", 2.0)]);
-            let py_right = Py::new(py, right.clone()).unwrap();
-            let result = left.subtract(py_right.bind(py), 3.0).unwrap();
-            assert_eq!(result.to_dict().get("a"), Some(&7.0)); // fill used
-            assert_eq!(result.to_dict().get("b"), Some(&3.0)); // right value used
-        });
+        let left = make_dict(&[("a", 10.0), ("b", 5.0)]);
+        let right = make_dict(&[("b", 2.0)]);
+        let result = left.subtract(right, 3.0);
+        assert_eq!(result.to_dict().get("a"), Some(&7.0));
+        assert_eq!(result.to_dict().get("b"), Some(&3.0));
     }
 
     #[test]
     fn test_multiply_uses_fill_for_missing_keys() {
-        Python::initialize();
-        Python::attach(|py| {
-            let left = make_dict(&[("a", 2.0), ("b", 3.0)]);
-            let right = make_dict(&[("b", 10.0)]);
-            let py_right = Py::new(py, right.clone()).unwrap();
-            let result = left.multiply(py_right.bind(py), 1.0).unwrap();
-            assert_eq!(result.to_dict().get("a"), Some(&2.0)); // fill used
-            assert_eq!(result.to_dict().get("b"), Some(&30.0)); // right value used
-        });
+        let left = make_dict(&[("a", 2.0), ("b", 3.0)]);
+        let right = make_dict(&[("b", 10.0)]);
+        let result = left.multiply(right, 1.0);
+        assert_eq!(result.to_dict().get("a"), Some(&2.0));
+        assert_eq!(result.to_dict().get("b"), Some(&30.0));
     }
 
     #[test]
     fn test_add_default_fill_is_zero() {
-        Python::initialize();
-        Python::attach(|py| {
-            let left = make_dict(&[("a", 1.0)]);
-            let right = make_dict(&[]);
-            let py_right = Py::new(py, right.clone()).unwrap();
-            let result = left.add(py_right.bind(py), 0.0).unwrap();
-            assert_eq!(result.to_dict().get("a"), Some(&1.0));
-        });
+        let left = make_dict(&[("a", 1.0)]);
+        let right = make_dict(&[]);
+        let result = left.add(right, 0.0);
+        assert_eq!(result.to_dict().get("a"), Some(&1.0));
     }
 
     #[test]
     fn test_subtract_default_fill_is_zero() {
-        Python::initialize();
-        Python::attach(|py| {
-            let left = make_dict(&[("a", 5.0)]);
-            let right = make_dict(&[]);
-            let py_right = Py::new(py, right.clone()).unwrap();
-            let result = left.subtract(py_right.bind(py), 0.0).unwrap();
-            assert_eq!(result.to_dict().get("a"), Some(&5.0));
-        });
+        let left = make_dict(&[("a", 5.0)]);
+        let right = make_dict(&[]);
+        let result = left.subtract(right, 0.0);
+        assert_eq!(result.to_dict().get("a"), Some(&5.0));
     }
 
     #[test]
     fn test_multiply_default_fill_is_one() {
-        Python::initialize();
-        Python::attach(|py| {
-            let left = make_dict(&[("a", 7.0)]);
-            let right = make_dict(&[]);
-            let py_right = Py::new(py, right.clone()).unwrap();
-            let result = left.multiply(py_right.bind(py), 1.0).unwrap();
-            assert_eq!(result.to_dict().get("a"), Some(&7.0));
-        });
+        let left = make_dict(&[("a", 7.0)]);
+        let right = make_dict(&[]);
+        let result = left.multiply(right, 1.0);
+        assert_eq!(result.to_dict().get("a"), Some(&7.0));
     }
 
     #[test]
     fn test_add_fast_path_identical_keys() {
-        Python::initialize();
-        Python::attach(|py| {
-            let left = make_dict(&[("a", 1.0), ("b", 2.0)]);
-            let right = make_dict(&[("a", 10.0), ("b", 20.0)]);
-            let py_right = Py::new(py, right.clone()).unwrap();
-            let result = left.add(py_right.bind(py), 0.0).unwrap();
-            assert_eq!(result.to_dict().get("a"), Some(&11.0));
-            assert_eq!(result.to_dict().get("b"), Some(&22.0));
-        });
+        let left = make_dict(&[("a", 1.0), ("b", 2.0)]);
+        let right = make_dict(&[("a", 10.0), ("b", 20.0)]);
+        let result = left.add(right, 0.0);
+        assert_eq!(result.to_dict().get("a"), Some(&11.0));
+        assert_eq!(result.to_dict().get("b"), Some(&22.0));
     }
 
     #[test]
     fn test_subtract_fast_path_identical_keys() {
-        Python::initialize();
-        Python::attach(|py| {
-            let left = make_dict(&[("a", 10.0), ("b", 20.0)]);
-            let right = make_dict(&[("a", 3.0), ("b", 5.0)]);
-            let py_right = Py::new(py, right.clone()).unwrap();
-            let result = left.subtract(py_right.bind(py), 0.0).unwrap();
-            assert_eq!(result.to_dict().get("a"), Some(&7.0));
-            assert_eq!(result.to_dict().get("b"), Some(&15.0));
-        });
+        let left = make_dict(&[("a", 10.0), ("b", 20.0)]);
+        let right = make_dict(&[("a", 3.0), ("b", 5.0)]);
+        let result = left.subtract(right, 0.0);
+        assert_eq!(result.to_dict().get("a"), Some(&7.0));
+        assert_eq!(result.to_dict().get("b"), Some(&15.0));
     }
 
     #[test]
     fn test_multiply_fast_path_identical_keys() {
-        Python::initialize();
-        Python::attach(|py| {
-            let left = make_dict(&[("a", 2.0), ("b", 3.0)]);
-            let right = make_dict(&[("a", 5.0), ("b", 4.0)]);
-            let py_right = Py::new(py, right.clone()).unwrap();
-            let result = left.multiply(py_right.bind(py), 1.0).unwrap();
-            assert_eq!(result.to_dict().get("a"), Some(&10.0));
-            assert_eq!(result.to_dict().get("b"), Some(&12.0));
-        });
+        let left = make_dict(&[("a", 2.0), ("b", 3.0)]);
+        let right = make_dict(&[("a", 5.0), ("b", 4.0)]);
+        let result = left.multiply(right, 1.0);
+        assert_eq!(result.to_dict().get("a"), Some(&10.0));
+        assert_eq!(result.to_dict().get("b"), Some(&12.0));
     }
 
     #[test]
     fn test_does_not_modify_operands() {
-        Python::initialize();
-        Python::attach(|py| {
-            let left = make_dict(&[("a", 1.0), ("b", 2.0)]);
-            let right = make_dict(&[("b", 10.0)]);
-            let py_right = Py::new(py, right.clone()).unwrap();
-            let _ = left.add(py_right.bind(py), 5.0).unwrap();
-            let _ = left.subtract(py_right.bind(py), 0.0).unwrap();
-            let _ = left.multiply(py_right.bind(py), 1.0).unwrap();
-            assert_eq!(left.to_dict().get("a"), Some(&1.0));
-            assert_eq!(left.to_dict().get("b"), Some(&2.0));
-            assert_eq!(right.to_dict().get("b"), Some(&10.0));
-        });
+        let left = make_dict(&[("a", 1.0), ("b", 2.0)]);
+        let right = make_dict(&[("b", 10.0)]);
+        let _ = left.add(right.clone(), 5.0);
+        let _ = left.subtract(right.clone(), 0.0);
+        let _ = left.multiply(right.clone(), 1.0);
+        assert_eq!(left.to_dict().get("a"), Some(&1.0));
+        assert_eq!(left.to_dict().get("b"), Some(&2.0));
+        assert_eq!(right.to_dict().get("b"), Some(&10.0));
     }
 
     #[test]
     fn test_chained_operations() {
-        Python::initialize();
-        Python::attach(|py| {
-            let rd = make_dict(&[("x", 1.0)]);
-            let py_rd = Py::new(py, rd.clone()).unwrap();
-            let result = rd
-                .add_scalar(2.0)
-                .subtract_scalar(1.0)
-                .add(py_rd.bind(py), 0.0)
-                .unwrap();
-            assert_eq!(result.to_dict().get("x"), Some(&3.0));
-        });
+        let rd = make_dict(&[("x", 1.0)]);
+        let result = rd.add_scalar(2.0).subtract_scalar(1.0).add(rd.clone(), 0.0);
+        assert_eq!(result.to_dict().get("x"), Some(&3.0));
     }
 
     #[test]
@@ -578,27 +512,19 @@ mod tests {
 
     #[test]
     fn test_divide() {
-        Python::initialize();
-        Python::attach(|py| {
-            let left = make_dict(&[("a", 10.0), ("b", 6.0)]);
-            let right = make_dict(&[("b", 2.0)]);
-            let py_right = Py::new(py, right.clone()).unwrap();
-            let result = left.divide(py_right.bind(py), 1.0).unwrap();
-            assert_eq!(result.to_dict().get("a"), Some(&10.0));
-            assert_eq!(result.to_dict().get("b"), Some(&3.0));
-        });
+        let left = make_dict(&[("a", 10.0), ("b", 6.0)]);
+        let right = make_dict(&[("b", 2.0)]);
+        let result = left.divide(right, 1.0);
+        assert_eq!(result.to_dict().get("a"), Some(&10.0));
+        assert_eq!(result.to_dict().get("b"), Some(&3.0));
     }
 
     #[test]
     fn test_divide_default_fill_is_one() {
-        Python::initialize();
-        Python::attach(|py| {
-            let left = make_dict(&[("a", 7.0)]);
-            let right = make_dict(&[]);
-            let py_right = Py::new(py, right.clone()).unwrap();
-            let result = left.divide(py_right.bind(py), 1.0).unwrap();
-            assert_eq!(result.to_dict().get("a"), Some(&7.0));
-        });
+        let left = make_dict(&[("a", 7.0)]);
+        let right = make_dict(&[]);
+        let result = left.divide(right, 1.0);
+        assert_eq!(result.to_dict().get("a"), Some(&7.0));
     }
 
     #[test]
@@ -649,28 +575,20 @@ mod tests {
 
     #[test]
     fn test_multiply_does_not_modify_operands() {
-        Python::initialize();
-        Python::attach(|py| {
-            let left = make_dict(&[("a", 1.0), ("b", 2.0)]);
-            let right = make_dict(&[("b", 10.0)]);
-            let py_right = Py::new(py, right.clone()).unwrap();
-            let _ = left.multiply(py_right.bind(py), 1.0).unwrap();
-            assert_eq!(left.to_dict().get("a"), Some(&1.0));
-            assert_eq!(left.to_dict().get("b"), Some(&2.0));
-            assert_eq!(right.to_dict().get("b"), Some(&10.0));
-        });
+        let left = make_dict(&[("a", 1.0), ("b", 2.0)]);
+        let right = make_dict(&[("b", 10.0)]);
+        let _ = left.multiply(right.clone(), 1.0);
+        assert_eq!(left.to_dict().get("a"), Some(&1.0));
+        assert_eq!(left.to_dict().get("b"), Some(&2.0));
+        assert_eq!(right.to_dict().get("b"), Some(&10.0));
     }
 
     #[test]
     fn test_divide_does_not_modify_operands() {
-        Python::initialize();
-        Python::attach(|py| {
-            let left = make_dict(&[("a", 10.0), ("b", 6.0)]);
-            let right = make_dict(&[("b", 2.0)]);
-            let py_right = Py::new(py, right.clone()).unwrap();
-            let _ = left.divide(py_right.bind(py), 1.0).unwrap();
-            assert_eq!(left.to_dict().get("a"), Some(&10.0));
-            assert_eq!(left.to_dict().get("b"), Some(&6.0));
-        });
+        let left = make_dict(&[("a", 10.0), ("b", 6.0)]);
+        let right = make_dict(&[("b", 2.0)]);
+        let _ = left.divide(right.clone(), 1.0);
+        assert_eq!(left.to_dict().get("a"), Some(&10.0));
+        assert_eq!(left.to_dict().get("b"), Some(&6.0));
     }
 }
