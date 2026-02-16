@@ -29,21 +29,24 @@ pip install redbear
 ```python
 import redbear as rb
 
-# Create a RedDict from a regular Python dict
+# Create a RedDict from a regular Python dict.
 data = {"a": 1.0, "b": 2.0, "c": 3.0}
 rd = rb.RedDict(data)
 
-# Scalar operations (creates a new RedDict)
+# Scalar operations (creates a new RedDict).
 rd_plus_5 = rd.add_scalar(5.0)  # {"a": 6.0, "b": 7.0, "c": 8.0}
 rd_minus_2 = rd.subtract_scalar(2.0)  # {"a": -1.0, "b": 0.0, "c": 1.0}
 
-# Element-wise operations between two RedDicts
+# Element-wise operations between two RedDicts.
 other = rb.RedDict({"a": 10.0, "b": 20.0, "c": 30.0})
 result = rd.add(other)  # {"a": 11.0, "b": 22.0, "c": 33.0}
 result = rd.subtract(other)  # {"a": -9.0, "b": -18.0, "c": -27.0}
 result = rd.multiply(other)  # {"a": 10.0, "b": 40.0, "c": 90.0}
 
-# Get the underlying dict back
+# Perform item lookup. Note that it's up to 2x slower than Python's dict item lookup.
+data["a"] # 1.0
+
+# Get the underlying dict back.
 plain_dict = rd.to_dict  # {"a": 1.0, "b": 2.0, "c": 3.0}
 ```
 
